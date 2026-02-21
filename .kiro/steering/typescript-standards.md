@@ -3,13 +3,11 @@ title: TypeScript Standards
 inclusion: always
 ---
 
-# TypeScript Standards
+# g/d/n/a TypeScript Standards
 
-## Configuration
-
-Always use strict mode in `tsconfig.json`:
-
-```json
+## Compiler Configuration
+```jsonc
+// tsconfig.json — non-negotiable settings
 {
   "compilerOptions": {
     "strict": true,
@@ -17,217 +15,110 @@ Always use strict mode in `tsconfig.json`:
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true
+    "exactOptionalPropertyTypes": true
   }
 }
 ```
+
+## Monorepo TypeScript Configuration
+All packages extend `tsconfig.base.json` at the repo root. Package-specific overrides go in each package's `tsconfig.json`. See `monorepo-standards.md` for the base config, project references, and workspace dependency patterns. Do not duplicate base compiler options in package-level configs. Import shared code by package name (`import { User } from 'common'`), never by relative path across package boundaries.
+```
+
+**`aws-cdk-standards.md`** — find:
+```
+- `cdk synth` must pass before any commit
+```
+
+Replace with:
+```
+- `pnpm turbo cdk:synth --filter=infra` must pass before any commit (see `monorepo-standards.md` for Turbo pipeline)
+```
+
+And find:
+```
+- Run with: `npx jest --silent`
+```
+
+Replace with:
+```
+- Run with: `pnpm turbo test --filter=infra`
+
+## Type Safety Rules
+- **No `any`** — Use `unknown` and narrow with type guards
+- **No `@ts-ignore`** — Use `@ts-expect-error` with explanation comment if absolutely necessary
+- **No type assertions (`as`)** unless narrowing from `unknown` after validation
+- **No non-null assertions (`!`)** — Handle the null case explicitly
+- **Prefer `interface` for object shapes** — Use `type` for unions, intersections, and utility types
+- **Zod for runtime validation** — Every external input (API response, form data, env vars) validated with Zod
 
 ## Naming Conventions
+- **Interfaces/Types:** PascalCase — `UserProfile`, `DashboardProps`
+- **Enums:** PascalCase with PascalCase members — `UserRole.Admin`
+- **Functions/Variables:** camelCase — `getUserProfile`, `isAuthenticated`
+- **Constants:** SCREAMING_SNAKE_CASE — `MAX_RETRY_COUNT`, `API_BASE_URL`
+- **Files:** kebab-case — `user-profile.ts`, `dashboard-utils.ts`
+- **React Components:** PascalCase files — `UserProfile.tsx` (exception to kebab-case)
+- **Boolean variables:** Prefix with `is`, `has`, `should`, `can` — `isLoading`, `hasPermission`
 
-```tsx
-// Types and Interfaces - PascalCase
-type User = { id: string; name: string };
-interface ProductProps { product: Product; }
+## Error Handling — Result Pattern
+For operations that can fail, use a typed Result pattern instead of try/catch at every level:
 
-// Variables and Functions - camelCase
-const userName = 'John';
-function fetchUser() {}
-
-// Constants - SCREAMING_SNAKE_CASE
-const API_BASE_URL = 'https://api.example.com';
-const MAX_RETRY_COUNT = 3;
-
-// Components - PascalCase
-export function ProductCard() {}
-
-// Files - kebab-case or PascalCase (match export)
-// product-card.tsx or ProductCard.tsx
-```
-
-## Type vs Interface
-
-Prefer `type` for most cases, use `interface` for extensible object shapes:
-
-```tsx
-// ✅ Good - Type for unions, intersections, primitives
-type Status = 'pending' | 'active' | 'inactive';
-type ID = string | number;
-type UserWithRole = User & { role: Role };
-
-// ✅ Good - Interface for object shapes that may be extended
-interface User {
-  id: string;
-  name: string;
-}
-
-interface AdminUser extends User {
-  permissions: string[];
-}
-```
-
-## Avoid `any`
-
-```tsx
-// ❌ Bad
-function processData(data: any) {
-  return data.value;
-}
-
-// ✅ Good - Use unknown and type guard
-function processData(data: unknown) {
-  if (typeof data === 'object' && data !== null && 'value' in data) {
-    return data.value;
-  }
-  throw new Error('Invalid data');
-}
-
-// ✅ Better - Use generic
-function processData<T extends { value: string }>(data: T) {
-  return data.value;
-}
-```
-
-## Result/Either Pattern
-
-Use for operations that can fail:
-
-```tsx
-type Result<T, E = Error> = 
+```typescript
+// lib/types/result.ts
+type Result<T, E = Error> =
   | { success: true; data: T }
   | { success: false; error: E };
 
-async function fetchUser(id: string): Promise<Result<User>> {
+// Usage in Server Actions
+async function createUser(input: CreateUserInput): Promise<Result<User, string>> {
+  const parsed = createUserSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: 'Invalid input' };
+  }
   try {
-    const response = await fetch(`/api/users/${id}`);
-    if (!response.ok) {
-      return { success: false, error: new Error('User not found') };
-    }
-    const data = await response.json();
-    return { success: true, data };
-  } catch (error) {
-    return { success: false, error: error as Error };
+    const user = await db.user.create({ data: parsed.data });
+    return { success: true, data: user };
+  } catch {
+    return { success: false, error: 'Failed to create user' };
   }
-}
-
-// Usage
-const result = await fetchUser('123');
-if (result.success) {
-  console.log(result.data.name); // Type-safe access
-} else {
-  console.error(result.error.message);
 }
 ```
 
-## Zod for Runtime Validation
+## Function Patterns
+- **Prefer named exports** — `export function` over `export default`
+- **Explicit return types** on exported functions and Server Actions
+- **Early returns** for guard clauses — reduce nesting
+- **No function declarations longer than 50 lines** — extract helpers
+- **Pure functions where possible** — no side effects, predictable outputs
 
-```tsx
+## Import Organization
+```typescript
+// 1. React / Next.js
+import { Suspense } from 'react';
+import { notFound } from 'next/navigation';
+
+// 2. Third-party libraries
 import { z } from 'zod';
+import { useQuery } from '@tanstack/react-query';
 
-const userSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string().min(1),
-  email: z.string().email(),
-  age: z.number().int().positive().optional(),
-});
+// 3. Internal aliases (@/)
+import { Button } from '@/components/ui/button';
+import { getUserById } from '@/lib/queries/users';
 
-type User = z.infer<typeof userSchema>;
-
-function validateUser(data: unknown): Result<User> {
-  const result = userSchema.safeParse(data);
-  if (result.success) {
-    return { success: true, data: result.data };
-  }
-  return { success: false, error: new Error(result.error.message) };
-}
+// 4. Relative imports (only within same feature)
+import { formatStatus } from './utils';
 ```
 
-## Utility Types
+## Zod Schema Conventions
+- Schemas live in `lib/validators/` organized by domain
+- Schema names: `entityActionSchema` — `userCreateSchema`, `dealUpdateSchema`
+- Infer types from schemas: `type UserCreate = z.infer<typeof userCreateSchema>`
+- Shared between client forms and Server Actions — single source of truth
+- Custom error messages for user-facing validation
 
-```tsx
-// Partial - Make all properties optional
-type PartialUser = Partial<User>;
-
-// Required - Make all properties required
-type RequiredUser = Required<User>;
-
-// Pick - Select specific properties
-type UserPreview = Pick<User, 'id' | 'name'>;
-
-// Omit - Exclude specific properties
-type UserWithoutEmail = Omit<User, 'email'>;
-
-// Record - Create object type with specific keys
-type UserRoles = Record<string, 'admin' | 'user' | 'guest'>;
-```
-
-## Generics
-
-```tsx
-// ✅ Good - Generic function
-function first<T>(arr: T[]): T | undefined {
-  return arr[0];
-}
-
-// ✅ Good - Generic component
-interface ListProps<T> {
-  items: T[];
-  renderItem: (item: T) => React.ReactNode;
-}
-
-export function List<T>({ items, renderItem }: ListProps<T>) {
-  return <ul>{items.map(renderItem)}</ul>;
-}
-
-// Usage
-<List items={products} renderItem={(p) => <li key={p.id}>{p.name}</li>} />
-```
-
-## Type Guards
-
-```tsx
-function isUser(value: unknown): value is User {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'id' in value &&
-    'name' in value
-  );
-}
-
-function processValue(value: unknown) {
-  if (isUser(value)) {
-    console.log(value.name); // Type-safe
-  }
-}
-```
-
-## Discriminated Unions
-
-```tsx
-type ApiResponse<T> =
-  | { status: 'loading' }
-  | { status: 'success'; data: T }
-  | { status: 'error'; error: string };
-
-function handleResponse<T>(response: ApiResponse<T>) {
-  switch (response.status) {
-    case 'loading':
-      return <Spinner />;
-    case 'success':
-      return <div>{response.data}</div>; // Type-safe access
-    case 'error':
-      return <Error message={response.error} />;
-  }
-}
-```
-
-## Anti-Patterns
-
-❌ Don't use `any` (use `unknown` or proper types)
-❌ Don't use `as` type assertions unless absolutely necessary
-❌ Don't use `@ts-ignore` or `@ts-expect-error` without explanation
-❌ Don't define types inline (extract to named types)
-❌ Don't use `Function` type (use specific function signature)
-❌ Don't use `object` type (use specific object shape)
-❌ Don't use optional chaining (`?.`) as a band-aid for poor types
+## Forbidden Patterns
+- `Object` — use `Record<string, unknown>` or specific interface
+- `Function` — use specific function signature
+- `String`, `Number`, `Boolean` — use lowercase primitives
+- Nested ternaries — use early returns or switch statements
+- String enums for API values — use `as const` objects with Zod

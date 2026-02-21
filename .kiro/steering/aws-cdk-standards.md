@@ -1,343 +1,184 @@
 ---
-title: AWS CDK Standards
+title: AWS CDK & Infrastructure Standards
 inclusion: always
 ---
 
-# AWS CDK Standards
+# g/d/n/a AWS CDK & Infrastructure Standards
 
-## Project Structure
+## Infrastructure Tool Decision
 
+### Default: AWS CDK (TypeScript)
+- All AWS-native client projects use CDK
+- Agentic CDK capabilities align with AI-driven architecture generation
+- TypeScript CDK shares language with frontend — single team competency
+- L2/L3 constructs preferred over L1 (CloudFormation primitives)
+
+### When Terraform is Required
+- Multi-cloud deployments (client has Azure/GCP alongside AWS)
+- Client mandate / existing TF estate that must be maintained
+- When using Terraform: use CDKTF (CDK for Terraform) as bridge when possible
+
+### g/d/n/a Reusable Architecture Modules
+- Reusable modules provide a standardized interface regardless of backend (CDK or TF)
+- Module contract: defined inputs (config), outputs (endpoints, ARNs), tagging, security baseline
+- Natural language architecture generation targets these module interfaces
+- Modules are versioned and published to internal registry
+
+## CDK Project Structure
 ```
-infrastructure/
+infra/
 ├── bin/
-│   └── app.ts              # CDK app entry point
+│   └── app.ts                  # CDK app entry point
 ├── lib/
+│   ├── stacks/                 # Stack definitions
+│   │   ├── network-stack.ts
+│   │   ├── compute-stack.ts
+│   │   ├── data-stack.ts
+│   │   └── monitoring-stack.ts
+│   ├── constructs/             # Reusable L3 constructs
+│   │   ├── secure-api.ts
+│   │   ├── compliant-bucket.ts
+│   │   └── audited-lambda.ts
+│   └── config/                 # Environment configurations
+│       ├── environments.ts
+│       └── tags.ts
+├── test/                       # CDK tests
 │   ├── stacks/
-│   │   ├── api-stack.ts
-│   │   ├── database-stack.ts
-│   │   └── frontend-stack.ts
 │   └── constructs/
-│       ├── lambda-function.ts
-│       └── api-gateway.ts
-├── test/
-│   └── stacks/
-│       └── api-stack.test.ts
 ├── cdk.json
-├── tsconfig.json
-└── package.json
+└── tsconfig.json
 ```
 
 ## Stack Organization
+- **One stack per deployment boundary** — resources that deploy together belong together
+- **Cross-stack references via interfaces** — never import concrete stack classes
+- **Environment-aware configuration** — dev/staging/prod differences via config, not conditionals
+- **Stack names include environment** — `gdna-{client}-{service}-{env}`
 
+## Construct Patterns
+
+### Compliant S3 Bucket (Example L3 Construct)
+Every construct should enforce security and compliance defaults:
 ```typescript
-// bin/app.ts
-import * as cdk from 'aws-cdk-lib';
-import { ApiStack } from '../lib/stacks/api-stack';
-import { DatabaseStack } from '../lib/stacks/database-stack';
+export class CompliantBucket extends Construct {
+  public readonly bucket: s3.Bucket;
 
-const app = new cdk.App();
-
-const env = {
-  account: process.env.CDK_DEFAULT_ACCOUNT,
-  region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
-};
-
-const databaseStack = new DatabaseStack(app, 'DatabaseStack', { env });
-const apiStack = new ApiStack(app, 'ApiStack', {
-  env,
-  table: databaseStack.table,
-});
-
-app.synth();
-```
-
-## L2/L3 Constructs Preferred
-
-```typescript
-import * as cdk from 'aws-cdk-lib';
-import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
-import { Construct } from 'constructs';
-
-export class ApiStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
-    super(scope, id, props);
-    
-    // ✅ Good - L2 construct with sensible defaults
-    const table = new dynamodb.Table(this, 'ProductsTable', {
-      partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.DESTROY, // Only for dev
-      pointInTimeRecovery: true,
-    });
-    
-    // ✅ Good - L2 Lambda function
-    const handler = new lambda.Function(this, 'ProductHandler', {
-      runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda'),
-      environment: {
-        TABLE_NAME: table.tableName,
-      },
-      timeout: cdk.Duration.seconds(30),
-      memorySize: 512,
-    });
-    
-    table.grantReadWriteData(handler);
-  }
-}
-```
-
-## Custom Constructs
-
-```typescript
-// lib/constructs/api-lambda.ts
-import { Construct } from 'constructs';
-import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as logs from 'aws-cdk-lib/aws-logs';
-import { Duration } from 'aws-cdk-lib';
-
-export interface ApiLambdaProps {
-  handler: string;
-  environment?: Record<string, string>;
-  timeout?: Duration;
-}
-
-export class ApiLambda extends Construct {
-  public readonly function: lambda.Function;
-  
-  constructor(scope: Construct, id: string, props: ApiLambdaProps) {
+  constructor(scope: Construct, id: string, props: CompliantBucketProps) {
     super(scope, id);
-    
-    this.function = new lambda.Function(this, 'Function', {
-      runtime: lambda.Runtime.NODEJS_18_X,
-      handler: props.handler,
-      code: lambda.Code.fromAsset('lambda'),
-      environment: props.environment,
-      timeout: props.timeout || Duration.seconds(30),
-      logRetention: logs.RetentionDays.ONE_WEEK,
-      tracing: lambda.Tracing.ACTIVE,
+    this.bucket = new s3.Bucket(this, 'Bucket', {
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      versioned: true,
+      removalPolicy: props.retainOnDelete
+        ? cdk.RemovalPolicy.RETAIN
+        : cdk.RemovalPolicy.DESTROY,
+      serverAccessLogsBucket: props.accessLogBucket,
+      lifecycleRules: props.dataRetentionDays
+        ? [{ expiration: cdk.Duration.days(props.dataRetentionDays) }]
+        : undefined,
     });
   }
 }
 ```
 
-## Environment-Specific Configuration
-
+## Mandatory Tagging
+Every resource must be tagged. Applied at the App level:
 ```typescript
-// lib/config.ts
-export interface EnvironmentConfig {
-  stage: string;
-  logRetention: logs.RetentionDays;
-  removalPolicy: cdk.RemovalPolicy;
-  enableBackups: boolean;
-}
-
-export function getConfig(stage: string): EnvironmentConfig {
-  const configs: Record<string, EnvironmentConfig> = {
-    dev: {
-      stage: 'dev',
-      logRetention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      enableBackups: false,
-    },
-    prod: {
-      stage: 'prod',
-      logRetention: logs.RetentionDays.ONE_MONTH,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-      enableBackups: true,
-    },
-  };
-  
-  return configs[stage] || configs.dev;
-}
-
-// Usage in stack
-const config = getConfig(this.node.tryGetContext('stage') || 'dev');
-```
-
-## Tagging
-
-```typescript
-import * as cdk from 'aws-cdk-lib';
-
 const app = new cdk.App();
-
-const stack = new ApiStack(app, 'ApiStack');
-
-// Apply tags to all resources in stack
-cdk.Tags.of(stack).add('Environment', 'production');
-cdk.Tags.of(stack).add('Project', 'product-api');
-cdk.Tags.of(stack).add('ManagedBy', 'CDK');
-cdk.Tags.of(stack).add('CostCenter', 'engineering');
+cdk.Tags.of(app).add('gdna:project', projectName);
+cdk.Tags.of(app).add('gdna:environment', environment);
+cdk.Tags.of(app).add('gdna:owner', teamOwner);
+cdk.Tags.of(app).add('gdna:cost-center', costCenter);
+cdk.Tags.of(app).add('gdna:data-classification', dataClassification);
+cdk.Tags.of(app).add('gdna:compliance', complianceFramework);
 ```
 
-## Testing
+## Security Defaults (Non-Negotiable)
+- **S3:** Block all public access, enforce SSL, enable versioning
+- **Lambda:** VPC-attached when accessing data stores, least-privilege IAM
+- **API Gateway:** WAF attached, throttling configured, access logging enabled
+- **RDS/Aurora:** Encryption at rest, no public accessibility, automated backups
+- **Secrets:** AWS Secrets Manager — never SSM Parameter Store for secrets
+- **KMS:** Customer-managed keys for data classified CONFIDENTIAL or above
+- **CloudTrail:** Enabled with log file validation, multi-region
+- **VPC:** No default VPC usage, private subnets for compute, NAT Gateway for outbound
+
+## IAM Patterns
+- **Least privilege always** — Start with no permissions, add explicitly
+- **No inline policies** — Use managed policies attached to roles
+- **No wildcard resources** — Scope to specific ARNs
+- **Service-linked roles** where available
+- **Permission boundaries** for developer/deployment roles
+- **Conditions** for cross-account access and MFA enforcement
 
 ```typescript
-// test/stacks/api-stack.test.ts
-import * as cdk from 'aws-cdk-lib';
-import { Template } from 'aws-cdk-lib/assertions';
-import { ApiStack } from '../../lib/stacks/api-stack';
+// ✅ Good — scoped permissions
+lambdaFunction.addToRolePolicy(new iam.PolicyStatement({
+  actions: ['dynamodb:GetItem', 'dynamodb:PutItem'],
+  resources: [table.tableArn],
+}));
 
-describe('ApiStack', () => {
-  test('creates DynamoDB table', () => {
-    const app = new cdk.App();
-    const stack = new ApiStack(app, 'TestStack');
-    const template = Template.fromStack(stack);
-    
-    template.hasResourceProperties('AWS::DynamoDB::Table', {
-      BillingMode: 'PAY_PER_REQUEST',
-      PointInTimeRecoverySpecification: {
-        PointInTimeRecoveryEnabled: true,
-      },
-    });
-  });
-  
-  test('Lambda has correct environment variables', () => {
-    const app = new cdk.App();
-    const stack = new ApiStack(app, 'TestStack');
-    const template = Template.fromStack(stack);
-    
-    template.hasResourceProperties('AWS::Lambda::Function', {
-      Environment: {
-        Variables: {
-          TABLE_NAME: { Ref: cdk.Match.anyValue() },
-        },
-      },
-    });
-  });
-  
-  test('Lambda has IAM permissions for DynamoDB', () => {
-    const app = new cdk.App();
-    const stack = new ApiStack(app, 'TestStack');
-    const template = Template.fromStack(stack);
-    
-    template.hasResourceProperties('AWS::IAM::Policy', {
-      PolicyDocument: {
-        Statement: cdk.Match.arrayWith([
-          cdk.Match.objectLike({
-            Action: cdk.Match.arrayWith([
-              'dynamodb:PutItem',
-              'dynamodb:GetItem',
-              'dynamodb:Query',
-            ]),
-          }),
-        ]),
-      },
-    });
+// ❌ Bad — overly broad
+lambdaFunction.addToRolePolicy(new iam.PolicyStatement({
+  actions: ['dynamodb:*'],
+  resources: ['*'],
+}));
+```
+
+## CDK Testing
+- **Snapshot tests** for every stack — catch unintended changes
+- **Fine-grained assertions** for security-critical resources
+- **Validation tests** for construct input constraints
+- Run with: `pnpm turbo test --filter=infra`
+
+```typescript
+test('S3 bucket blocks public access', () => {
+  const template = Template.fromStack(stack);
+  template.hasResourceProperties('AWS::S3::Bucket', {
+    PublicAccessBlockConfiguration: {
+      BlockPublicAcls: true,
+      BlockPublicPolicy: true,
+      IgnorePublicAcls: true,
+      RestrictPublicBuckets: true,
+    },
   });
 });
 ```
 
-## Outputs
+## CDK Synth Validation
+- `pnpm turbo cdk:synth --filter=infra` must pass before any commit (see `monorepo-standards.md` for Turbo pipeline)
+- Use `cdk-nag` for automated security and compliance checking
+- Suppress nag rules only with documented justification
+- Aspects for organization-wide policy enforcement
 
-```typescript
-export class ApiStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
-    super(scope, id, props);
-    
-    const api = new apigateway.RestApi(this, 'Api');
-    
-    new cdk.CfnOutput(this, 'ApiUrl', {
-      value: api.url,
-      description: 'API Gateway URL',
-      exportName: `${this.stackName}-ApiUrl`,
-    });
-    
-    new cdk.CfnOutput(this, 'TableName', {
-      value: table.tableName,
-      description: 'DynamoDB table name',
-    });
-  }
-}
-```
+## Deployment Pipeline
+- CDK Pipelines for self-mutating deployment
+- Environment promotion: dev → staging → prod
+- Manual approval gate before production
+- Rollback strategy defined per stack
+- Drift detection enabled in production
 
-## Cross-Stack References
+## Client Segment Considerations
 
-```typescript
-// database-stack.ts
-export class DatabaseStack extends cdk.Stack {
-  public readonly table: dynamodb.Table;
-  
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
-    super(scope, id, props);
-    
-    this.table = new dynamodb.Table(this, 'Table', {
-      partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
-    });
-  }
-}
+### Startups
+- Single-stack deployments acceptable
+- Serverless-first (Lambda, DynamoDB, S3)
+- Cost optimization: spot instances, reserved capacity planning
 
-// api-stack.ts
-interface ApiStackProps extends cdk.StackProps {
-  table: dynamodb.Table;
-}
+### SMB Transformation
+- Multi-stack with shared networking
+- Managed services preferred over self-hosted
+- Backup and disaster recovery configured
 
-export class ApiStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props: ApiStackProps) {
-    super(scope, id, props);
-    
-    const handler = new lambda.Function(this, 'Handler', {
-      // ...
-      environment: {
-        TABLE_NAME: props.table.tableName,
-      },
-    });
-    
-    props.table.grantReadWriteData(handler);
-  }
-}
-```
+### Enterprise / Agentic
+- Multi-account strategy (AWS Organizations)
+- Service Control Policies for guardrails
+- Transit Gateway for network connectivity
+- Centralized logging and monitoring account
 
-## CDK vs Terraform Decision
-
-Use CDK when:
-- Team is TypeScript/Python proficient
-- AWS-only infrastructure
-- Need type safety and IDE support
-- Want to use L2/L3 constructs
-
-Use Terraform when:
-- Multi-cloud infrastructure
-- Team prefers HCL
-- Need Terraform ecosystem tools
-- Existing Terraform infrastructure
-
-## Common Commands
-
-```bash
-# Install dependencies
-npm install
-
-# Synthesize CloudFormation
-cdk synth
-
-# Deploy stack
-cdk deploy ApiStack
-
-# Deploy all stacks
-cdk deploy --all
-
-# Diff against deployed stack
-cdk diff
-
-# Destroy stack
-cdk destroy ApiStack
-
-# List stacks
-cdk list
-
-# Run tests
-npm test
-```
-
-## Anti-Patterns
-
-❌ Don't use L1 (Cfn) constructs unless necessary
-❌ Don't hardcode values (use context or environment variables)
-❌ Don't skip tagging
-❌ Don't ignore removal policies (data loss risk)
-❌ Don't create circular dependencies between stacks
-❌ Don't use `cdk.RemovalPolicy.DESTROY` in production
-❌ Don't skip testing infrastructure code
+### GRC / Compliance-Heavy
+- AWS Config rules for continuous compliance
+- GuardDuty and Security Hub enabled
+- Macie for PII detection in S3
+- Evidence collection automated for audit readiness

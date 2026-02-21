@@ -3,410 +3,175 @@ title: Testing Standards
 inclusion: always
 ---
 
-# Testing Standards
+# g/d/n/a Testing Standards
 
-## Testing Pyramid
-
-```
-        /\
-       /  \      E2E Tests (Few)
-      /____\     - Critical user flows
-     /      \    - Playwright
-    /________\   Integration Tests (Some)
-   /          \  - API endpoints
-  /____________\ - Component interactions
- /              \ Unit Tests (Many)
-/______________\ - Pure functions
-                 - Business logic
-```
+## Test Stack
+| Layer | Tool | Scope |
+|-------|------|-------|
+| Unit (JS/TS) | Vitest | Functions, hooks, utilities |
+| Component | React Testing Library | UI component behavior |
+| Integration | Vitest + MSW | API integration, data flow |
+| E2E | Playwright | Critical user journeys |
+| Infrastructure | Jest (CDK) | Stack assertions, security checks |
+| Backend (Python) | pytest | Services, handlers, models |
+| Performance | Lighthouse CI | Core Web Vitals gates |
 
 ## Vitest Configuration
-
 ```typescript
 // vitest.config.ts
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
-import path from 'path';
+import tsconfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tsconfigPaths()],
   test: {
-    globals: true,
     environment: 'jsdom',
-    setupFiles: ['./tests/setup.ts'],
+    globals: true,
+    setupFiles: ['./src/test/setup.ts'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-      exclude: [
-        'node_modules/',
-        'tests/',
-        '**/*.config.ts',
-        '**/*.d.ts',
-      ],
+      reporter: ['text', 'lcov'],
       thresholds: {
-        lines: 80,
-        functions: 80,
-        branches: 75,
         statements: 80,
+        branches: 75,
+        functions: 80,
+        lines: 80,
       },
     },
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
+    // Minimal output — prevent timeout in CI
+    reporters: ['default'],
+    silent: true,
   },
 });
 ```
 
-## Unit Tests
+## What to Test
+
+### ALWAYS Test
+- Server Actions — input validation, error handling, return types
+- Business logic in `lib/` — calculations, transformations, decisions
+- Zustand stores — state transitions, derived state
+- Custom hooks — state management, side effect behavior
+- Zod schemas — valid inputs accepted, invalid inputs rejected with correct messages
+- CDK constructs — security properties, resource configuration
+- Python services — business rules, data transformations
+
+### Test Selectively
+- React components — test BEHAVIOR, not implementation. Focus on:
+  - User interactions (click, type, submit)
+  - Conditional rendering based on props/state
+  - Accessibility (role attributes, keyboard navigation)
+  - Error states and loading states
+- API Route Handlers — integration tests with MSW
+
+### DO NOT Unit Test
+- shadcn/ui components — they're tested upstream
+- Tailwind class strings — not behavioral
+- Static layouts with no logic
+- Third-party library internals
+
+## React Testing Library Patterns
 
 ```typescript
-// src/utils/formatPrice.test.ts
-import { describe, it, expect } from 'vitest';
-import { formatPrice } from './formatPrice';
+// ✅ Good — tests behavior, not implementation
+test('submits form with valid data', async () => {
+  const user = userEvent.setup();
+  render(<ContactForm onSubmit={mockSubmit} />);
 
-describe('formatPrice', () => {
-  it('formats price with two decimal places', () => {
-    expect(formatPrice(10)).toBe('$10.00');
-    expect(formatPrice(10.5)).toBe('$10.50');
-    expect(formatPrice(10.99)).toBe('$10.99');
+  await user.type(screen.getByLabelText(/name/i), 'Jane Doe');
+  await user.type(screen.getByLabelText(/email/i), 'jane@example.com');
+  await user.click(screen.getByRole('button', { name: /submit/i }));
+
+  expect(mockSubmit).toHaveBeenCalledWith({
+    name: 'Jane Doe',
+    email: 'jane@example.com',
   });
-  
-  it('handles zero', () => {
-    expect(formatPrice(0)).toBe('$0.00');
-  });
-  
-  it('handles negative numbers', () => {
-    expect(formatPrice(-10)).toBe('-$10.00');
-  });
-  
-  it('handles large numbers', () => {
-    expect(formatPrice(1000000)).toBe('$1,000,000.00');
-  });
+});
+
+// ❌ Bad — tests implementation details
+test('sets state when input changes', () => {
+  const { result } = renderHook(() => useContactForm());
+  act(() => result.current.setName('Jane'));
+  expect(result.current.name).toBe('Jane');
 });
 ```
 
-## React Testing Library
-
-```typescript
-// components/ProductCard.test.tsx
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { ProductCard } from './ProductCard';
-
-describe('ProductCard', () => {
-  const mockProduct = {
-    id: '1',
-    name: 'Test Product',
-    price: 29.99,
-    imageUrl: '/test.jpg',
-  };
-  
-  it('renders product information', () => {
-    render(<ProductCard product={mockProduct} />);
-    
-    expect(screen.getByText('Test Product')).toBeInTheDocument();
-    expect(screen.getByText('$29.99')).toBeInTheDocument();
-    expect(screen.getByRole('img')).toHaveAttribute('src', '/test.jpg');
-  });
-  
-  it('calls onAddToCart when button clicked', () => {
-    const onAddToCart = vi.fn();
-    render(<ProductCard product={mockProduct} onAddToCart={onAddToCart} />);
-    
-    const button = screen.getByRole('button', { name: /add to cart/i });
-    fireEvent.click(button);
-    
-    expect(onAddToCart).toHaveBeenCalledWith('1');
-    expect(onAddToCart).toHaveBeenCalledTimes(1);
-  });
-  
-  it('is accessible', () => {
-    const { container } = render(<ProductCard product={mockProduct} />);
-    
-    // Check for proper heading hierarchy
-    expect(screen.getByRole('heading', { level: 3 })).toBeInTheDocument();
-    
-    // Check for alt text on image
-    const img = screen.getByRole('img');
-    expect(img).toHaveAttribute('alt', expect.stringContaining('Test Product'));
-  });
-});
-```
-
-## Testing Hooks
-
-```typescript
-// hooks/useProducts.test.ts
-import { describe, it, expect, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useProducts } from './useProducts';
-
-const createWrapper = () => {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-    },
-  });
-  
-  return ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={queryClient}>
-      {children}
-    </QueryClientProvider>
-  );
-};
-
-describe('useProducts', () => {
-  it('fetches products successfully', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => [{ id: '1', name: 'Product 1' }],
-    });
-    
-    const { result } = renderHook(() => useProducts(), {
-      wrapper: createWrapper(),
-    });
-    
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    
-    expect(result.current.data).toEqual([{ id: '1', name: 'Product 1' }]);
-  });
-  
-  it('handles fetch error', async () => {
-    global.fetch = vi.fn().mockRejectedValue(new Error('Failed to fetch'));
-    
-    const { result } = renderHook(() => useProducts(), {
-      wrapper: createWrapper(),
-    });
-    
-    await waitFor(() => expect(result.current.isError).toBe(true));
-    
-    expect(result.current.error).toBeDefined();
-  });
-});
-```
-
-## Mocking
-
-```typescript
-// tests/mocks/handlers.ts
-import { http, HttpResponse } from 'msw';
-
-export const handlers = [
-  http.get('/api/products', () => {
-    return HttpResponse.json([
-      { id: '1', name: 'Product 1', price: 10 },
-      { id: '2', name: 'Product 2', price: 20 },
-    ]);
-  }),
-  
-  http.post('/api/products', async ({ request }) => {
-    const product = await request.json();
-    return HttpResponse.json(
-      { id: '3', ...product },
-      { status: 201 }
-    );
-  }),
-  
-  http.get('/api/products/:id', ({ params }) => {
-    const { id } = params;
-    if (id === '404') {
-      return new HttpResponse(null, { status: 404 });
-    }
-    return HttpResponse.json({ id, name: `Product ${id}`, price: 10 });
-  }),
-];
-
-// tests/setup.ts
-import { beforeAll, afterEach, afterAll } from 'vitest';
-import { setupServer } from 'msw/node';
-import { handlers } from './mocks/handlers';
-
-const server = setupServer(...handlers);
-
-beforeAll(() => server.listen());
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
-```
-
-## Integration Tests
-
-```typescript
-// tests/integration/checkout.test.ts
-import { describe, it, expect } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { CheckoutFlow } from '@/components/CheckoutFlow';
-
-describe('Checkout Flow', () => {
-  it('completes full checkout process', async () => {
-    render(<CheckoutFlow />);
-    
-    // Add items to cart
-    const addButton = screen.getByRole('button', { name: /add to cart/i });
-    fireEvent.click(addButton);
-    
-    // Navigate to checkout
-    const checkoutButton = screen.getByRole('button', { name: /checkout/i });
-    fireEvent.click(checkoutButton);
-    
-    // Fill shipping form
-    fireEvent.change(screen.getByLabelText(/name/i), {
-      target: { value: 'John Doe' },
-    });
-    fireEvent.change(screen.getByLabelText(/address/i), {
-      target: { value: '123 Main St' },
-    });
-    
-    // Submit order
-    const submitButton = screen.getByRole('button', { name: /place order/i });
-    fireEvent.click(submitButton);
-    
-    // Verify success
-    await waitFor(() => {
-      expect(screen.getByText(/order confirmed/i)).toBeInTheDocument();
-    });
-  });
-});
-```
+### Query Priority
+1. `getByRole` — accessible queries first
+2. `getByLabelText` — form elements
+3. `getByText` — visible text
+4. `getByTestId` — last resort, add `data-testid` sparingly
 
 ## Playwright E2E Tests
+- Cover critical user journeys only — login, core workflow, payment
+- Run against staging environment in CI
+- Use page object pattern for maintainability
+- Visual regression tests for key pages
 
 ```typescript
-// e2e/checkout.spec.ts
-import { test, expect } from '@playwright/test';
-
-test.describe('Checkout Flow', () => {
-  test('user can complete purchase', async ({ page }) => {
-    await page.goto('/products');
-    
-    // Add product to cart
-    await page.getByRole('button', { name: /add to cart/i }).first().click();
-    
-    // Navigate to cart
-    await page.getByRole('link', { name: /cart/i }).click();
-    await expect(page).toHaveURL(/\/cart/);
-    
-    // Proceed to checkout
-    await page.getByRole('button', { name: /checkout/i }).click();
-    await expect(page).toHaveURL(/\/checkout/);
-    
-    // Fill form
-    await page.getByLabel(/name/i).fill('John Doe');
-    await page.getByLabel(/email/i).fill('john@example.com');
-    await page.getByLabel(/address/i).fill('123 Main St');
-    
-    // Submit
-    await page.getByRole('button', { name: /place order/i }).click();
-    
-    // Verify success
-    await expect(page.getByText(/order confirmed/i)).toBeVisible();
-    await expect(page).toHaveURL(/\/order\/[a-z0-9-]+/);
-  });
-  
-  test('validates required fields', async ({ page }) => {
-    await page.goto('/checkout');
-    
-    await page.getByRole('button', { name: /place order/i }).click();
-    
-    await expect(page.getByText(/name is required/i)).toBeVisible();
-    await expect(page.getByText(/email is required/i)).toBeVisible();
-  });
+// e2e/auth.spec.ts
+test('user can log in and access dashboard', async ({ page }) => {
+  await page.goto('/login');
+  await page.getByLabel('Email').fill('test@example.com');
+  await page.getByLabel('Password').fill('testpassword');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL('/dashboard');
+  await expect(page.getByRole('heading', { name: /dashboard/i })).toBeVisible();
 });
 ```
 
-## Playwright Configuration
+## Python Testing (pytest)
+```bash
+# Run command — fast, minimal output
+pytest -q --tb=short -x --cov=src --cov-report=term-missing
+```
+
+- Fixtures in `conftest.py` — shared test data, mock clients
+- `moto` for AWS service mocking (S3, DynamoDB, SQS, etc.)
+- Factory pattern for test data generation
+- Separate `unit/` and `integration/` directories
+
+## API Contract Testing
+- Every API project with an OpenAPI spec must have contract tests
+- Contract tests validate that Route Handler responses match the OpenAPI schema
+- Use `@apidevtools/swagger-parser` to load and validate the spec
+- Use `ajv` to validate response bodies against JSON Schema from the spec
+- Contract tests run in CI alongside unit and integration tests
+- Test both success paths AND error responses (400, 401, 404, 500)
 
 ```typescript
-// playwright.config.ts
-import { defineConfig, devices } from '@playwright/test';
-
-export default defineConfig({
-  testDir: './e2e',
-  fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
-  use: {
-    baseURL: 'http://localhost:3000',
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-  },
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
-    {
-      name: 'Mobile Chrome',
-      use: { ...devices['Pixel 5'] },
-    },
-  ],
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-  },
-});
+// Pattern: validate real responses against OpenAPI spec
+const spec = await SwaggerParser.validate('openapi.yaml');
+const schema = spec.paths['/endpoint'].get.responses['200']
+  .content['application/json'].schema;
+const validate = ajv.compile(schema);
+expect(validate(responseBody)).toBe(true);
 ```
 
-## Test Coverage Gates
-
-```json
-// package.json
-{
-  "scripts": {
-    "test": "vitest",
-    "test:coverage": "vitest --coverage",
-    "test:e2e": "playwright test",
-    "test:ci": "vitest --run --coverage && playwright test"
-  }
-}
+## CI Integration
+```yaml
+# Tests must pass before merge
+- name: Test
+  run: |
+    pnpm turbo test --filter=web -- --silent --coverage
+    pnpm dlx playwright test
+    pytest -q --tb=short -x
 ```
 
-## Testing Best Practices
+## Coverage Requirements
+| Layer | Minimum | Target |
+|-------|---------|--------|
+| Business logic (`lib/`, `services/`) | 80% | 90% |
+| Server Actions | 80% | 90% |
+| React components | 60% | 75% |
+| CDK constructs | 90% | 95% |
+| Python handlers | 70% | 85% |
+| E2E critical paths | N/A | 100% of defined journeys |
 
-```typescript
-// ✅ Good - Test behavior, not implementation
-it('shows error when form is invalid', async () => {
-  render(<LoginForm />);
-  fireEvent.click(screen.getByRole('button', { name: /login/i }));
-  expect(await screen.findByText(/email is required/i)).toBeInTheDocument();
-});
-
-// ❌ Bad - Testing implementation details
-it('sets error state when form is invalid', () => {
-  const { result } = renderHook(() => useLoginForm());
-  act(() => result.current.submit());
-  expect(result.current.errors.email).toBe('Email is required');
-});
-
-// ✅ Good - Use accessible queries
-screen.getByRole('button', { name: /submit/i });
-screen.getByLabelText(/email/i);
-screen.getByText(/welcome/i);
-
-// ❌ Bad - Use test IDs or classes
-screen.getByTestId('submit-button');
-container.querySelector('.submit-btn');
-```
-
-## Anti-Patterns
-
-❌ Don't test implementation details
-❌ Don't use `waitFor` for everything (use `findBy` queries)
-❌ Don't test third-party libraries
-❌ Don't write tests that depend on each other
-❌ Don't mock everything (test real integrations when possible)
-❌ Don't skip accessibility testing
-❌ Don't ignore flaky tests (fix them)
+## GRC Testing Requirements
+- Security-critical paths require dedicated test suites
+- Auth flows: test unauthorized access, token expiry, session management
+- Data access: test role-based visibility, data isolation between tenants
+- Audit logging: verify audit events are emitted for data-modifying operations
+- Input validation: fuzz testing for public-facing endpoints

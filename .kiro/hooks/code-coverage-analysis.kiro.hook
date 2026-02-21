@@ -4,7 +4,7 @@
   "description": "Analyzes test coverage and identifies gaps against g/d/n/a coverage thresholds.",
   "version": "1",
   "when": {
-    "type": "manual",
+    "type": "userTriggered",
     "button_text": "Analyze Coverage"
   },
   "then": {

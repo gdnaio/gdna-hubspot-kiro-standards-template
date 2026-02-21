@@ -5,36 +5,27 @@ inclusion: always
 
 # Project Structure
 
-## Directory Layout
+> **CUSTOMIZE THIS FILE** for each engagement. The base layout below is the g/d/n/a Turborepo monorepo standard.
 
-```
-/
-├── src/                   # Source code
-├── tests/                 # Test files
-├── .kiro/                 # Kiro configuration
-│   ├── specs/            # Feature specifications
-│   ├── steering/         # Project steering rules
-│   ├── hooks/            # Automation hooks
-│   └── scripts/          # Utility scripts
-└── [other directories]
-```
+See `monorepo-standards.md` for workspace layout, package management (pnpm), and build orchestration (Turborepo). Do not deviate from the monorepo layout without architect approval.
 
-## [Component/Handler/Module] Organization
+See `frontend-architecture.md` for the full `packages/web/src/` structure.
 
-[Describe your project's organization patterns]
+## Workspace Packages
 
-## [Component/Handler/Module] Pattern
+| Package | Purpose | Depends On |
+|---------|---------|------------|
+| `packages/web` | Frontend app (Vite or Next.js) | common |
+| `packages/common` | Shared types, validators, constants | — |
+| `packages/infra` | AWS CDK infrastructure | common |
 
-[Describe common patterns used in your codebase]
+## [Project-Specific Modules]
 
-## Response/Output Format
-
-[Describe standard response formats if applicable]
-
-## Data Models
-
-[Describe your data models]
+[Document your project's specific module boundaries, services, and how they map to workspace packages.]
 
 ## Naming Conventions
 
-[Describe your naming conventions]
+See `coding-standards.md` for naming rules. Key monorepo conventions:
+- Package names in `package.json` are short (e.g., `"name": "web"`, not `"name": "@gdna/web"`)
+- Import shared code by package name: `import { User } from 'common'`
+- Never use relative paths across package boundaries
