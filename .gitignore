@@ -36,7 +36,20 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# HubSpot
+hubspot.config.yml
+
+# CDK
+cdk.out/
+
+# Turborepo
+.turbo/
+*.tsbuildinfo
+
+# Package manager lockfiles (only pnpm-lock.yaml is valid)
+package-lock.json
+yarn.lock
+
 # Misc
 .cache/
 .temp/
-node_modules

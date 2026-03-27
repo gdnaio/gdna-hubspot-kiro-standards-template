@@ -1,0 +1,13 @@
+defaultPortal: dev
+portals:
+  - name: dev
+    portalId: 00000000
+    authType: personalaccesskey
+    personalAccessKey: >-
+      [RUN: pnpm dlx hs init]
+  - name: staging
+    portalId: 00000001
+    authType: personalaccesskey
+  - name: prod
+    portalId: 00000002
+    authType: personalaccesskey

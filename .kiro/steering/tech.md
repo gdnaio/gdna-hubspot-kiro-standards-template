@@ -5,58 +5,61 @@ inclusion: always
 
 # Technology Stack
 
-## Infrastructure
+## Platform
 
-- [Cloud Provider]
-- [Compute Service]
-- [Database Service]
-- [Storage Service]
-- [IaC Tool]
+- HubSpot CMS Hub (Professional or Enterprise)
+- HubSpot CLI (`@hubspot/cli`) for local development
+- HubSpot Design Manager for preview/QA only
 
-## Backend
+## Templating
 
-- [Runtime/Language]
-- [Framework]
-- [Key Libraries]
+- HubL (HubSpot Markup Language)
+- HTML5 semantic markup
+- CSS3 (no preprocessor required — HubSpot handles bundling)
+- Vanilla JS (minimal — defer/async, no heavy frameworks)
 
-## Frontend
+## Key Tools
 
-- [Framework]
-- [Build Tool]
-- [Key Libraries]
-
-## Key Libraries
-
-- [Library 1] - [Purpose]
-- [Library 2] - [Purpose]
+- `@hubspot/cli` — Local dev, upload, watch, sandbox
+- HubSpot Sandbox — Preview and staging environments
+- HubSpot Forms API — Lead capture and workflow triggers
+- HubSpot CRM — Contact/deal pipeline integration
 
 ## Common Commands
 
 ```bash
-# Install dependencies
-[command]
+# Install HubSpot CLI
+pnpm add -D @hubspot/cli
 
-# Run locally
-[command]
+# Authenticate with portal
+pnpm dlx hs init
 
-# Run tests
-[command]
+# Upload theme to portal
+pnpm dlx hs upload src/theme theme
 
-# Deploy
-[command]
+# Watch and auto-upload on save
+pnpm dlx hs watch src/theme theme
+
+# Fetch existing theme from portal
+pnpm dlx hs fetch theme src/theme
+
+# Create new module
+pnpm dlx hs create module src/theme/modules/[module-name]
+
+# Create sandbox for preview
+pnpm dlx hs sandbox create
 ```
 
 ## Environment Variables
 
-Required in `.env`:
-- `[VAR_NAME]` - [Description]
+Required in `hubspot.config.yml` (never committed — see `.gitignore`):
+- `portalId` — HubSpot portal ID per environment (dev/staging/prod)
+- `personalAccessKey` — Auth token (use `hs auth` to generate)
 
-## [Cloud Provider] Configuration
+## Deployment Flow
 
-- Region: `[region]`
-- Account: `[account-id]`
-- Domain: `[domain]`
-
-## Data Storage
-
-[Describe your data storage setup]
+1. Local development with `hs watch`
+2. Upload to sandbox/dev portal for preview
+3. Stakeholder review in HubSpot preview
+4. Upload to staging portal for QA
+5. Upload to production portal for go-live

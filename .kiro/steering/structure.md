@@ -5,27 +5,60 @@ inclusion: always
 
 # Project Structure
 
-> **CUSTOMIZE THIS FILE** for each engagement. The base layout below is the g/d/n/a Turborepo monorepo standard.
+## HubSpot Theme Layout
 
-See `monorepo-standards.md` for workspace layout, package management (pnpm), and build orchestration (Turborepo). Do not deviate from the monorepo layout without architect approval.
+```
+project-root/
+├── src/
+│   └── theme/
+│       ├── theme.json
+│       ├── fields.json
+│       ├── templates/
+│       │   ├── layouts/
+│       │   │   └── base.html
+│       │   ├── pages/
+│       │   │   ├── landing-page.html
+│       │   │   └── [project-specific].html
+│       │   ├── system/
+│       │   │   ├── 404.html
+│       │   │   └── 500.html
+│       │   └── partials/
+│       │       ├── header.html
+│       │       ├── footer.html
+│       │       └── navigation.html
+│       ├── modules/
+│       │   ├── hero-banner/
+│       │   ├── feature-grid/
+│       │   ├── cta-section/
+│       │   ├── testimonial-carousel/
+│       │   ├── faq-accordion/
+│       │   ├── form-section/
+│       │   └── [project-specific-modules]/
+│       ├── css/
+│       │   ├── main.css
+│       │   └── _variables.css
+│       ├── js/
+│       │   └── main.js
+│       └── images/
+├── .kiro/
+│   ├── steering/
+│   ├── specs/
+│   ├── hooks/
+│   └── settings/
+├── hubspot.config.yml.example
+├── .gitignore
+├── package.json
+└── README.md
+```
 
-See `frontend-architecture.md` for the full `packages/web/src/` structure.
+## Module Naming
 
-## Workspace Packages
+- kebab-case directory names: `hero-banner/`, `feature-grid/`
+- Each module is self-contained: `module.html`, `module.css`, `module.js`, `meta.json`, `fields.json`
+- Group related modules by page type when the project grows large
 
-| Package | Purpose | Depends On |
-|---------|---------|------------|
-| `packages/web` | Frontend app (Vite or Next.js) | common |
-| `packages/common` | Shared types, validators, constants | — |
-| `packages/infra` | AWS CDK infrastructure | common |
+## Template Naming
 
-## [Project-Specific Modules]
-
-[Document your project's specific module boundaries, services, and how they map to workspace packages.]
-
-## Naming Conventions
-
-See `coding-standards.md` for naming rules. Key monorepo conventions:
-- Package names in `package.json` are short (e.g., `"name": "web"`, not `"name": "@gdna/web"`)
-- Import shared code by package name: `import { User } from 'common'`
-- Never use relative paths across package boundaries
+- Page templates: descriptive kebab-case — `landing-page.html`, `partner-signup.html`
+- System templates: match HubSpot conventions — `404.html`, `500.html`, `search-results.html`
+- Partials: component-style — `header.html`, `footer.html`, `navigation.html`
