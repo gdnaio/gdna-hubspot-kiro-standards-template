@@ -5,87 +5,80 @@ inclusion: always
 
 # HubSpot CMS Development Standards
 
-## HubSpot CLI Workflow
-
-All HubSpot development uses the official CLI. Never edit directly in the HubSpot Design Manager for production assets.
+## HubSpot CLI Setup
 
 ```bash
-# Install CLI
+# Install CLI as project dep
 pnpm add -D @hubspot/cli
 
-# Auth (creates hubspot.config.yml)
-pnpm dlx hs init
+# Auth — get a personal access key from Anvi or Will
+pnpm --package=@hubspot/cli dlx hs auth
 
-# Upload theme/module to portal
-pnpm dlx hs upload src/theme theme
+# Upload to portal
+pnpm --package=@hubspot/cli dlx hs cms upload src/[project] [project]
 
-# Watch for local changes → auto-upload
-pnpm dlx hs watch src/theme theme
+# Watch for changes
+pnpm --package=@hubspot/cli dlx hs cms watch src/[project] [project]
 
-# Fetch existing assets from portal
-pnpm dlx hs fetch theme src/theme
+# Fetch from portal
+pnpm --package=@hubspot/cli dlx hs cms fetch [project] src/[project]
 
-# Create a new module scaffold
-pnpm dlx hs create module src/theme/modules/new-module
+# Delete remote directory
+pnpm --package=@hubspot/cli dlx hs cms delete [path]
 
-# Preview
-pnpm dlx hs sandbox create
+# List remote contents
+pnpm --package=@hubspot/cli dlx hs cms list [path]
 ```
+
+### CLI Gotchas
+- Use `hs cms upload` NOT `hs upload` — the bare `upload` command doesn't exist in newer CLI versions
+- Use `pnpm --package=@hubspot/cli dlx hs` NOT `pnpm dlx hs` — the package has multiple binaries (`hs`, `hscms`) and pnpm can't auto-resolve
+- `hs init` requires an interactive terminal — won't work in Kiro's terminal. Run in your own terminal or use `hs auth`
+- If `hs init` says config already exists, use `hs auth` instead
 
 ## hubspot.config.yml
 
 ```yaml
-defaultPortal: dev
+defaultPortal: gdnaio-hs
 portals:
-  - name: dev
-    portalId: 00000000
+  - name: gdnaio-hs
+    env: prod
     authType: personalaccesskey
-    personalAccessKey: >-
-      [NEVER COMMIT — use env var or hs auth]
-  - name: staging
-    portalId: 00000001
-    authType: personalaccesskey
-  - name: prod
-    portalId: 00000002
-    authType: personalaccesskey
+    accountType: STANDARD
+    portalId: [GET FROM ANVI OR WILL]
+    personalAccessKey: [GENERATED VIA hs auth]
 ```
 
-- Never commit `personalAccessKey` values — use `hs auth` or environment variables
-- Add `hubspot.config.yml` to `.gitignore`
-- Provide `hubspot.config.yml.example` with placeholder portal IDs
+- NEVER commit `hubspot.config.yml` — it contains access keys
+- It's already in `.gitignore`
+- Provide `hubspot.config.yml.example` with placeholder values only
+- Only include portals you actually have credentials for — placeholder entries with fake IDs cause validation errors
 
-## Theme Structure
+## Project Structure (NOT a Theme)
+
+DO NOT use HubSpot themes (no `theme.json`, no theme-level `fields.json`). Themes trigger strict field validation that rejects `text`, `richtext`, `link`, and other common module field types. Instead, upload as plain CMS directories.
 
 ```
-src/theme/
-├── theme.json                 # Theme metadata and settings
-├── fields.json                # Global theme fields (colors, fonts, spacing)
+src/[project-name]/
 ├── templates/
 │   ├── layouts/
-│   │   └── base.html          # Base layout (header/footer/scripts)
+│   │   └── base.html
 │   ├── pages/
-│   │   ├── landing-page.html
-│   │   ├── site-page.html
-│   │   └── knowledge-base.html
-│   ├── blog/
-│   │   ├── blog-listing.html
-│   │   └── blog-post.html
+│   │   └── [page-name].html
 │   ├── system/
 │   │   ├── 404.html
-│   │   ├── 500.html
-│   │   ├── password-prompt.html
-│   │   └── search-results.html
+│   │   └── 500.html
 │   └── partials/
 │       ├── header.html
 │       ├── footer.html
 │       └── navigation.html
 ├── modules/
-│   └── [module-name]/
-│       ├── module.html         # HubL + HTML template
-│       ├── module.css           # Scoped styles
-│       ├── module.js            # Client-side behavior
-│       ├── meta.json            # Module config (label, icon, categories)
-│       └── fields.json          # Module field definitions
+│   └── [module-name].module/      ← .module suffix REQUIRED
+│       ├── module.html
+│       ├── module.css
+│       ├── module.js
+│       ├── meta.json
+│       └── fields.json
 ├── css/
 │   ├── main.css
 │   └── _variables.css
@@ -94,180 +87,203 @@ src/theme/
 └── images/
 ```
 
-## HubL Standards
+## Critical: Module Directory Naming
 
-### Variable Output
-```html
-<!-- ✅ Good — escaped by default -->
-{{ module.heading }}
+Module directories MUST end with `.module` suffix:
+- ✅ `hero-banner.module/`
+- ❌ `hero-banner/`
 
-<!-- ✅ Good — explicit filter when needed -->
-{{ module.rich_text|safe }}
+Without the `.module` suffix, HubSpot won't recognize the directory as a module.
 
-<!-- ❌ Bad — never use |safe on user-submitted content -->
-{{ contact.custom_field|safe }}
+## Critical: No theme.json or Theme-Level fields.json
+
+- ❌ DO NOT include `theme.json` in the project root
+- ❌ DO NOT include a `fields.json` at the project root
+- These trigger HubSpot's theme validation which rejects `text`, `richtext`, `link`, and other standard module field types
+- Module-level `fields.json` inside `.module` directories are fine — they use module validation rules
+
+## Critical: CSS Path Resolution
+
+- Use absolute paths from Design Manager root in `require_css`: `{{ require_css(get_asset_url("/[project]/css/main.css")) }}`
+- Do NOT use relative paths like `../../css/main.css` — they don't resolve correctly
+- Do NOT use CSS `@import` — HubSpot doesn't process them. Inline all CSS variables directly into main.css
+- Module CSS in `module.css` is auto-included by HubSpot — no need to require it
+
+## Critical: Module Path Resolution in Templates
+
+- Use absolute paths from Design Manager root: `{% module "name" path="/[project]/modules/[name].module" %}`
+- Leading `/` is required for reliable resolution
+- Do NOT use relative paths like `../modules/[name].module` — they fail silently
+
+## Upload Strategy
+
+Upload CSS/JS/templates as a batch, then modules individually or as a batch:
+
+```bash
+# Upload static assets and templates
+pnpm --package=@hubspot/cli dlx hs cms upload src/[project]/css [project]/css
+pnpm --package=@hubspot/cli dlx hs cms upload src/[project]/js [project]/js
+pnpm --package=@hubspot/cli dlx hs cms upload src/[project]/templates [project]/templates
+
+# Upload modules
+pnpm --package=@hubspot/cli dlx hs cms upload src/[project]/modules [project]/modules
 ```
 
-### Conditionals
-```html
-{% if module.show_cta and module.cta_link %}
-  <a href="{{ module.cta_link.url.href }}"
-     {% if module.cta_link.open_in_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %}>
-    {{ module.cta_link.url.text }}
-  </a>
-{% endif %}
+If module batch upload fails, upload each module individually:
+```bash
+pnpm --package=@hubspot/cli dlx hs cms upload src/[project]/modules/[name].module [project]/modules/[name].module
 ```
 
-### Loops
-```html
-{% for item in module.features %}
-  <div class="feature-card">
-    <h3>{{ item.title }}</h3>
-    <p>{{ item.description }}</p>
-  </div>
-{% endfor %}
-```
+## meta.json — Valid Module Categories
 
-### Macros (Reusable Snippets)
-```html
-{% macro render_button(link, style) %}
-  {% if link.url.href %}
-    <a href="{{ link.url.href }}"
-       class="btn btn--{{ style|default('primary') }}"
-       {% if link.open_in_new_tab %}target="_blank" rel="noopener noreferrer"{% endif %}>
-      {{ link.url.text }}
-    </a>
-  {% endif %}
-{% endmacro %}
+Only these categories are valid in `meta.json`:
+- `TEXT`
+- `COMMERCE`
+- `DESIGN`
+- `FUNCTIONALITY`
+- `FORMS_AND_BUTTONS`
+- `BODY_CONTENT`
+- `MEDIA`
+- `BLOG`
+- `SOCIAL`
 
-{{ render_button(module.primary_cta, 'primary') }}
-{{ render_button(module.secondary_cta, 'outline') }}
-```
+❌ `BANNER` is NOT valid — use `DESIGN` instead
 
-### Required HubL Tags in Templates
-```html
-{{ standard_header_includes }}
-{{ standard_footer_includes }}
-```
-These are mandatory in every page template. Omitting them breaks HubSpot tracking, analytics, and CMS features.
-
-## Module Development
-
-### meta.json Pattern
 ```json
 {
   "label": "Hero Banner",
   "css_assets": [],
   "external_js": [],
   "global": false,
-  "host_template_types": ["PAGE", "BLOG_LISTING", "BLOG_POST"],
-  "icon": "module_icon_banner",
+  "host_template_types": ["PAGE"],
   "is_available_for_new_content": true,
-  "categories": ["BANNER"]
+  "categories": ["DESIGN"]
 }
 ```
 
-### fields.json Pattern
+## fields.json — Module Field Rules
+
+### Reserved Field Names
+- ❌ `body` — reserved by HubSpot. Use `body_content` or `body_text` instead
+
+### Link Fields
+- Use `url` type with `supported_types` for simple URL fields
+- Avoid `link` type with complex default objects — they cause validation errors
+- For CTA buttons, use separate `text` + `url` fields instead of a single `link` field
+
 ```json
-[
-  {
-    "name": "heading",
-    "label": "Heading",
-    "type": "text",
-    "required": true,
-    "default": "Your Headline Here"
-  },
-  {
-    "name": "subheading",
-    "label": "Subheading",
-    "type": "richtext",
-    "required": false
-  },
-  {
-    "name": "background_image",
-    "label": "Background Image",
-    "type": "image",
-    "required": false,
-    "responsive": true,
-    "default": {
-      "src": "",
-      "alt": "",
-      "loading": "lazy"
-    }
-  },
-  {
-    "name": "cta_link",
-    "label": "Call to Action",
-    "type": "link",
-    "required": false,
-    "supported_types": ["EXTERNAL", "CONTENT", "FILE", "EMAIL_ADDRESS"]
-  },
-  {
-    "name": "style",
-    "label": "Style",
-    "type": "choice",
-    "choices": [
-      ["light", "Light"],
-      ["dark", "Dark"],
-      ["brand", "Brand Color"]
-    ],
-    "default": "light"
-  }
-]
+{
+  "name": "cta_text",
+  "label": "Button Text",
+  "type": "text",
+  "default": "Get Started"
+},
+{
+  "name": "cta_url",
+  "label": "Button URL",
+  "type": "url",
+  "supported_types": ["EXTERNAL", "CONTENT"]
+}
 ```
 
-### Field Type Reference
+### Repeater Fields (Groups with occurrence)
+Use `group` type with `occurrence` and provide `default` array with pre-populated items:
+```json
+{
+  "name": "items",
+  "type": "group",
+  "occurrence": { "min": 1, "max": 6, "default": 3 },
+  "children": [...],
+  "default": [{ ... }, { ... }, { ... }]
+}
+```
+
+### Field Type Reference (Module fields.json)
 | Type | Use For |
 |------|---------|
 | `text` | Single-line text |
 | `richtext` | Rich text editor (WYSIWYG) |
 | `image` | Image picker with alt text |
-| `link` | URL with link type options |
+| `url` | URL field (use instead of `link` for simplicity) |
 | `choice` | Dropdown select |
 | `boolean` | Toggle switch |
 | `number` | Numeric input |
 | `color` | Color picker |
 | `font` | Font selector |
-| `group` | Field grouping container |
-| `repeater` | Repeatable field groups |
+| `group` | Field grouping container (use `occurrence` for repeaters) |
 
-## Accessibility in HubSpot Templates
+## HubL Standards
 
-- All `<img>` tags must have `alt` attributes (use `{{ module.image.alt }}`)
-- All form inputs must have associated `<label>` elements
-- Use semantic HTML: `<nav>`, `<main>`, `<article>`, `<section>`, `<aside>`
+### Required Tags in Every Page Template
+```html
+{{ standard_header_includes }}
+{{ standard_footer_includes }}
+```
+
+### Variable Output
+```html
+{{ module.heading }}
+{{ module.rich_text_field|safe }}
+```
+Never use `|safe` on user-submitted content.
+
+### Template Annotation (Required for Page Templates)
+```html
+<!--
+  templateType: page
+  label: My Page Template
+  isAvailableForNewContent: true
+-->
+```
+
+### Module Includes (Preferred over dnd_area for reliable rendering)
+```html
+{% module "module_name" path="/[project]/modules/[name].module" %}
+```
+
+## Content Data File
+
+Include a `content.json` at the project root with all page copy. This makes the template replicable — swap the content file for a new engagement:
+```json
+{
+  "hero_banner": { "heading": "...", "body_text": "..." },
+  "stats_row": { "stats": [...] },
+  ...
+}
+```
+
+## Previewing Your Work
+
+After uploading to HubSpot:
+1. Go to your portal: `https://app.hubspot.com/portal/[PORTAL_ID]`
+2. Marketing → Website → Website Pages → Create page
+3. Select your template
+4. Click Preview to see it rendered
+5. Create a NEW page each time you update the template — old pages cache the previous version
+
+## Accessibility
+
+- All `<img>` tags must have `alt` attributes
+- All form inputs must have `<label>` elements
+- Semantic HTML: `<nav>`, `<main>`, `<article>`, `<section>`
 - Skip navigation link in base layout
-- Color contrast: 4.5:1 minimum for body text
 - Focus indicators on all interactive elements
-- `aria-label` on icon-only buttons and links
+- `aria-label` on icon-only buttons
 - `lang` attribute on `<html>` tag
-
-## SEO Requirements
-
-- Every page template must support `<title>` and `<meta name="description">` via HubSpot page settings
-- Use `<h1>` once per page, hierarchical heading structure
-- Structured data (JSON-LD) for relevant page types
-- Canonical URLs via `{{ content.absolute_url }}`
-- Open Graph and Twitter Card meta tags in base layout
-- Image `alt` text populated from module fields, never empty
-- `robots` meta tag respecting HubSpot page settings
-
-## Performance
-
-- Lazy load images below the fold: `loading="lazy"`
-- Inline critical CSS in base layout `<head>`
-- Defer non-critical JS: `defer` attribute
-- Minimize HubL `require_css` / `require_js` — bundle where possible
-- Use HubSpot's built-in image optimization (auto-resize via `resize_image_url`)
-- Avoid `{{ require_css("path") }}` in modules when styles can be in `module.css`
 
 ## Anti-Patterns
 
-❌ Don't edit templates in HubSpot Design Manager for production code
-❌ Don't use inline styles — use module.css or theme CSS
-❌ Don't hardcode portal-specific IDs or URLs in templates
-❌ Don't use `|safe` filter on user-submitted content
-❌ Don't skip `standard_header_includes` / `standard_footer_includes`
-❌ Don't create modules without `fields.json` — always define the content editor interface
-❌ Don't use `<div>` for navigation — use `<nav>`
-❌ Don't commit `hubspot.config.yml` with real access keys
+❌ Don't include `theme.json` — triggers strict theme field validation
+❌ Don't include root-level `fields.json` — same issue
+❌ Don't use `BANNER` category in meta.json — not valid
+❌ Don't name fields `body` — reserved word
+❌ Don't use `link` type with complex defaults — use `url` + `text` instead
+❌ Don't use `pnpm dlx hs` — use `pnpm --package=@hubspot/cli dlx hs`
+❌ Don't commit `hubspot.config.yml`
+❌ Don't use `hs upload` — use `hs cms upload`
+❌ Don't forget `.module` suffix on module directories
+❌ Don't edit in HubSpot Design Manager for production code
+❌ Don't hardcode portal-specific IDs in templates
+❌ Don't use relative paths for CSS or module includes — use absolute from Design Manager root
+❌ Don't use CSS `@import` — inline variables directly
+❌ Don't use `dnd_area` for initial builds — use direct `{% module %}` includes for reliable rendering
