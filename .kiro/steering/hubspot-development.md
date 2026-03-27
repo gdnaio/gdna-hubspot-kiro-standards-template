@@ -102,36 +102,18 @@ Without the `.module` suffix, HubSpot won't recognize the directory as a module.
 - These trigger HubSpot's theme validation which rejects `text`, `richtext`, `link`, and other standard module field types
 - Module-level `fields.json` inside `.module` directories are fine — they use module validation rules
 
-## Critical: CSS Path Resolution
-
-- Use absolute paths from Design Manager root in `require_css`: `{{ require_css(get_asset_url("/[project]/css/main.css")) }}`
-- Do NOT use relative paths like `../../css/main.css` — they don't resolve correctly
-- Do NOT use CSS `@import` — HubSpot doesn't process them. Inline all CSS variables directly into main.css
-- Module CSS in `module.css` is auto-included by HubSpot — no need to require it
-
-## Critical: Module Path Resolution in Templates
-
-- Use absolute paths from Design Manager root: `{% module "name" path="/[project]/modules/[name].module" %}`
-- Leading `/` is required for reliable resolution
-- Do NOT use relative paths like `../modules/[name].module` — they fail silently
-
 ## Upload Strategy
 
-Upload CSS/JS/templates as a batch, then modules individually or as a batch:
+Upload CSS/JS/templates as a batch, then modules individually or as a batch. If module upload fails, upload each module directory separately:
 
 ```bash
-# Upload static assets and templates
+# Upload everything except modules
 pnpm --package=@hubspot/cli dlx hs cms upload src/[project]/css [project]/css
 pnpm --package=@hubspot/cli dlx hs cms upload src/[project]/js [project]/js
 pnpm --package=@hubspot/cli dlx hs cms upload src/[project]/templates [project]/templates
 
 # Upload modules
 pnpm --package=@hubspot/cli dlx hs cms upload src/[project]/modules [project]/modules
-```
-
-If module batch upload fails, upload each module individually:
-```bash
-pnpm --package=@hubspot/cli dlx hs cms upload src/[project]/modules/[name].module [project]/modules/[name].module
 ```
 
 ## meta.json — Valid Module Categories
@@ -186,18 +168,6 @@ Only these categories are valid in `meta.json`:
 }
 ```
 
-### Repeater Fields (Groups with occurrence)
-Use `group` type with `occurrence` and provide `default` array with pre-populated items:
-```json
-{
-  "name": "items",
-  "type": "group",
-  "occurrence": { "min": 1, "max": 6, "default": 3 },
-  "children": [...],
-  "default": [{ ... }, { ... }, { ... }]
-}
-```
-
 ### Field Type Reference (Module fields.json)
 | Type | Use For |
 |------|---------|
@@ -236,30 +206,14 @@ Never use `|safe` on user-submitted content.
 -->
 ```
 
-### Module Includes (Preferred over dnd_area for reliable rendering)
-```html
-{% module "module_name" path="/[project]/modules/[name].module" %}
-```
-
-## Content Data File
-
-Include a `content.json` at the project root with all page copy. This makes the template replicable — swap the content file for a new engagement:
-```json
-{
-  "hero_banner": { "heading": "...", "body_text": "..." },
-  "stats_row": { "stats": [...] },
-  ...
-}
-```
-
 ## Previewing Your Work
 
 After uploading to HubSpot:
 1. Go to your portal: `https://app.hubspot.com/portal/[PORTAL_ID]`
 2. Marketing → Website → Website Pages → Create page
-3. Select your template
+3. Select your template (e.g., "PC3 Migration Landing Page")
 4. Click Preview to see it rendered
-5. Create a NEW page each time you update the template — old pages cache the previous version
+5. Or use Design Manager to preview individual templates/modules
 
 ## Accessibility
 
@@ -284,6 +238,3 @@ After uploading to HubSpot:
 ❌ Don't forget `.module` suffix on module directories
 ❌ Don't edit in HubSpot Design Manager for production code
 ❌ Don't hardcode portal-specific IDs in templates
-❌ Don't use relative paths for CSS or module includes — use absolute from Design Manager root
-❌ Don't use CSS `@import` — inline variables directly
-❌ Don't use `dnd_area` for initial builds — use direct `{% module %}` includes for reliable rendering
